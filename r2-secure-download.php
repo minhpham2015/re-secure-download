@@ -14,8 +14,8 @@ class R2_Secure_Download_Chunk {
 
     // 🔧 CONFIG - CHANGE THESE
     private $api_endpoint; // Your Node.js API - loaded from options
-    private $test_file    = 'package-install__woozio-main.zip'; // File key in R2 bucket
-    private $chunk_size   = 10 * 1024 * 1024; // 10MB chunks (adjust as needed)
+    private $test_file; // File key in R2 bucket - loaded from options
+    private $chunk_size; // Chunk size in bytes - loaded from options
     private $download_dir; // Local save folder - will be set in constructor
     private $license; // License key from WordPress options
 
@@ -29,9 +29,11 @@ class R2_Secure_Download_Chunk {
         add_action('wp_ajax_nopriv_r2_delete_file', [$this, 'ajax_delete_file']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_assets']);
 
-        // Initialize license key and API endpoint
+        // Initialize license key, API endpoint, download file, and chunk size
         $this->license = get_option('r2_license_key');
         $this->api_endpoint = get_option('r2_api_endpoint', 'http://localhost:3000/download');
+        $this->test_file = get_option('r2_download_file', 'package-install__woozio-main.zip');
+        $this->chunk_size = (int) get_option('r2_chunk_size', '10') * 1024 * 1024; // Convert MB to bytes
 
         // Set download directory to WordPress uploads folder
         $upload_dir = wp_upload_dir();
@@ -92,6 +94,8 @@ class R2_Secure_Download_Chunk {
     public function register_settings() {
         register_setting('r2_settings_group', 'r2_license_key');
         register_setting('r2_settings_group', 'r2_api_endpoint');
+        register_setting('r2_settings_group', 'r2_download_file');
+        register_setting('r2_settings_group', 'r2_chunk_size');
     }
 
     public function settings_html() {
@@ -122,6 +126,20 @@ class R2_Secure_Download_Chunk {
                             <p class="description">Enter your Node.js API endpoint URL (e.g., http://localhost:3000/download)</p>
                         </td>
                     </tr>
+                    <tr>
+                        <th scope="row">Download File</th>
+                        <td>
+                            <input type="text" name="r2_download_file" value="<?php echo esc_attr(get_option('r2_download_file', 'package-install__woozio-main.zip')); ?>" class="regular-text" />
+                            <p class="description">Enter the file name to download from R2 (e.g., package-install__woozio-main.zip)</p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row">Chunk Size (MB)</th>
+                        <td>
+                            <input type="number" name="r2_chunk_size" value="<?php echo esc_attr(get_option('r2_chunk_size', '10')); ?>" class="small-text" min="1" max="100" />
+                            <p class="description">Enter chunk size in MB (1-100). Larger chunks download faster but may timeout on slow connections.</p>
+                        </td>
+                    </tr>
                 </table>
                 <?php submit_button(); ?>
             </form>
@@ -148,6 +166,8 @@ class R2_Secure_Download_Chunk {
     public function clear_file_size_cache() {
         $transient_key = 'r2_file_total_size_' . md5($this->test_file);
         delete_transient($transient_key);
+        // Also clear the old cache key for backward compatibility
+        delete_transient('r2_file_total_size_' . md5('package-install__woozio-main.zip'));
     }
 
     /* ---------------------------
